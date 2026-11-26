@@ -1,0 +1,4 @@
+aiogram
+aiosqlite
+cryptopay-python-sdk
+aiorocket2
