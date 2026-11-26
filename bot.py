@@ -18,7 +18,7 @@ from aiorocket2 import xRocketClient
 
 # ================== НАСТРОЙКИ ==================
 BOT_TOKEN = "9000976358:AAFm1FFWsOlh77Raw6ecIKLZz9hJb45-WHk"
-ADMIN_ID = 123456789                  # id @gloibox
+ADMIN_ID = 8121754585                  # id @gloibox
 DB = "debrw.db"
 
 CRYPTO_PAY_TOKEN = "687062:AABWEFe6eltgKvhCZWup1rMIMZ8Ip5GygIr"
