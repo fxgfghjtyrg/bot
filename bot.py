@@ -18,11 +18,9 @@ from crypto_pay_api import CryptoPayAsync, CryptoPayConfig
 from aiorocket2 import xRocketClient
 
 # ================== НАСТРОЙКИ ==================
-# Рекомендуется задавать их через переменные окружения на Railway, 
-# но для локального теста можно вписать напрямую в кавычки.
 BOT_TOKEN = os.getenv("BOT_TOKEN", "9000976358:AAFm1FFWsOlh77Raw6ecIKLZz9hJb45-WHk")
-ADMIN_ID = int(os.getenv("ADMIN_ID", 8121754585)) # Ваш ID
-DB = os.getenv("DB_PATH", "debrw.db") # На Railway лучше указать /app/data/debrw.db
+ADMIN_ID = int(os.getenv("ADMIN_ID", 8121754585)) # Ваш ID обновлен
+DB = os.getenv("DB_PATH", "debrw.db") 
 
 CRYPTO_PAY_TOKEN = os.getenv("CRYPTO_PAY_TOKEN", "687062:AABWEFe6eltgKvhCZWup1rMIMZ8Ip5GygIr")
 XROCKET_API_KEY = os.getenv("XROCKET_API_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhcHBJZCI6IjMxMTM4MSIsImp0aSI6ImFwcDozMTEzODE6NWVjODY3ZGMtYWU2ZS00MzYxLTkzZjctNzNkOGUxMTU1ZjE4IiwiaWF0IjoxNzk1Nzg3NzQ4fQ.wx9TjaPACVS_3KRFcxSKhaTW_UVh_da111xzynLHE-4")
@@ -35,11 +33,9 @@ router = Router()
 
 # ================== БД ==================
 async def init_db():
-    # Создаем папку для БД, если её нет (актуально для Railway Volume)
     db_dir = os.path.dirname(DB)
     if db_dir and not os.path.exists(db_dir):
         os.makedirs(db_dir, exist_ok=True)
-
     async with aiosqlite.connect(DB) as db:
         await db.executescript("""
         CREATE TABLE IF NOT EXISTS users(
@@ -371,18 +367,19 @@ async def topup_xrocket_amount(m: Message, state: FSMContext):
         return
 
     usdt = round(dw * CRYPTO_RATE, 2)
-    client = xRocketClient(api_key=XROCKET_API_KEY)
     
     try:
-        invoice = await client.create_invoice(
-            amount=usdt,
-            currency="USDT",
-            description=f"Пополнение на {dw} dw ({usdt} USDT)",
-            payload=f"xrocket:{m.from_user.id}:{dw}",
-            num_payments=1,
-            min_payment=0
-        )
-        pay_url = invoice.link
+        async with xRocketClient(api_key=XROCKET_API_KEY) as client:
+            invoice = await client.create_invoice(
+                price_currency="USDT",
+                amount=usdt,
+                description=f"Пополнение на {dw} dw ({usdt} USDT)",
+                payload=f"xrocket:{m.from_user.id}:{dw}",
+                num_payments=1,
+                min_payment=0
+            )
+        pay_url = invoice.url
+        
         await m.answer(
             f"🚀 Счёт на {dw} dw создан.\n"
             f"Сумма к оплате: {usdt} USDT\n"
@@ -390,30 +387,30 @@ async def topup_xrocket_amount(m: Message, state: FSMContext):
             f"После оплаты баланс пополнится автоматически.",
             reply_markup=main_menu()
         )
-        asyncio.create_task(poll_xrocket_invoice(client, invoice.id, m.from_user.id, dw, m.bot))
+        asyncio.create_task(poll_xrocket_invoice(XROCKET_API_KEY, invoice.id, m.from_user.id, dw, m.bot))
     except Exception as e:
-        await m.answer(f"Ошибка при создании счёта: {e}")
+        await m.answer(f"❌ Ошибка при создании счёта xRocket:\n{e}")
 
-async def poll_xrocket_invoice(client, invoice_id, user_id, dw, bot):
+async def poll_xrocket_invoice(api_key, invoice_id, user_id, dw, bot):
     await asyncio.sleep(5)
-    while True:
-        try:
-            # Используем get_invoices вместо get_invoice во избежание ошибок
-            invoices = await client.get_invoices(invoice_ids=[invoice_id])
-            if invoices and invoices[0].status == "paid":
-                await add_balance(user_id, dw)
-                try:
-                    await bot.send_message(
-                        user_id,
-                        f"✅ Оплата через xRocket получена! Баланс пополнен на {dw} dw.",
-                        reply_markup=main_menu()
-                    )
-                except Exception:
-                    pass
-                break
-        except Exception:
-            pass
-        await asyncio.sleep(10)
+    async with xRocketClient(api_key=api_key) as client:
+        while True:
+            try:
+                invoices = await client.get_invoices(invoice_ids=[invoice_id])
+                if invoices and invoices[0].status == "paid":
+                    await add_balance(user_id, dw)
+                    try:
+                        await bot.send_message(
+                            user_id,
+                            f"✅ Оплата через xRocket получена! Баланс пополнен на {dw} dw.",
+                            reply_markup=main_menu()
+                        )
+                    except Exception:
+                        pass
+                    break
+            except Exception:
+                pass
+            await asyncio.sleep(10)
 
 # ================== SN0S ==================
 @router.callback_query(F.data == "order")
