@@ -19,7 +19,7 @@ from aiorocket2 import xRocketClient
 
 # ================== НАСТРОЙКИ ==================
 BOT_TOKEN = os.getenv("BOT_TOKEN", "9000976358:AAFm1FFWsOlh77Raw6ecIKLZz9hJb45-WHk")
-ADMIN_ID = int(os.getenv("ADMIN_ID", 8121754585)) # Ваш ID обновлен
+ADMIN_ID = int(os.getenv("ADMIN_ID", 8121754585)) # Ваш ID
 DB = os.getenv("DB_PATH", "debrw.db") 
 
 CRYPTO_PAY_TOKEN = os.getenv("CRYPTO_PAY_TOKEN", "687062:AABWEFe6eltgKvhCZWup1rMIMZ8Ip5GygIr")
@@ -347,7 +347,7 @@ async def poll_crypto_invoice(cp, invoice_id, user_id, dw, bot):
             pass
         await asyncio.sleep(10)
 
-# ---------- XROCKET ----------
+# ---------- XROCKET (ИСПРАВЛЕНО) ----------
 @router.callback_query(F.data == "topup_xrocket")
 async def topup_xrocket(c: CallbackQuery, state: FSMContext):
     await state.set_state(TopUp.xrocket_amount)
@@ -371,7 +371,7 @@ async def topup_xrocket_amount(m: Message, state: FSMContext):
     try:
         async with xRocketClient(api_key=XROCKET_API_KEY) as client:
             invoice = await client.create_invoice(
-                price_currency="USDT",
+                currency="USDT",  # <-- ИСПРАВЛЕНО: убрали price_currency
                 amount=usdt,
                 description=f"Пополнение на {dw} dw ({usdt} USDT)",
                 payload=f"xrocket:{m.from_user.id}:{dw}",
