@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import aiosqlite
+import os
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
@@ -17,12 +18,14 @@ from crypto_pay_api import CryptoPayAsync, CryptoPayConfig
 from aiorocket2 import xRocketClient
 
 # ================== НАСТРОЙКИ ==================
-BOT_TOKEN = "9000976358:AAFm1FFWsOlh77Raw6ecIKLZz9hJb45-WHk"
-ADMIN_ID = 8121754585                  # id @gloibox
-DB = "debrw.db"
+# Рекомендуется задавать их через переменные окружения на Railway, 
+# но для локального теста можно вписать напрямую в кавычки.
+BOT_TOKEN = os.getenv("BOT_TOKEN", "9000976358:AAFm1FFWsOlh77Raw6ecIKLZz9hJb45-WHk")
+ADMIN_ID = int(os.getenv("ADMIN_ID", 8121754585)) # Ваш ID
+DB = os.getenv("DB_PATH", "debrw.db") # На Railway лучше указать /app/data/debrw.db
 
-CRYPTO_PAY_TOKEN = "687062:AABWEFe6eltgKvhCZWup1rMIMZ8Ip5GygIr"
-XROCKET_API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhcHBJZCI6IjMxMTI3MyIsImp0aSI6ImFwcDozMTEyNzM6YmIyNTZjZGYtYTFlNi00ZGY0LWI3MTgtMTNlMGU3Y2ZkZDkyIiwiaWF0IjoxNzk1NzE3NzYyfQ.HhjIx0NF3mKq_r0FIdezvlyNWqSfaEIA7ijMRQJewEA"
+CRYPTO_PAY_TOKEN = os.getenv("CRYPTO_PAY_TOKEN", "687062:AABWEFe6eltgKvhCZWup1rMIMZ8Ip5GygIr")
+XROCKET_API_KEY = os.getenv("XROCKET_API_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhcHBJZCI6IjMxMTI3MyIsImp0aSI6ImFwcDozMTEyNzM6YmIyNTZjZGYtYTFlNi00ZGY0LWI3MTgtMTNlMGU3Y2ZkZDkyIiwiaWF0IjoxNzk1NzE3NzYyfQ.HhjIx0NF3mKq_r0FIdezvlyNWqSfaEIA7ijMRQJewEA")
 
 STARS_RATE = 10       # 1 dw = 10 ⭐
 CRYPTO_RATE = 0.2     # 1 dw = 0.2 USDT
@@ -32,6 +35,11 @@ router = Router()
 
 # ================== БД ==================
 async def init_db():
+    # Создаем папку для БД, если её нет (актуально для Railway Volume)
+    db_dir = os.path.dirname(DB)
+    if db_dir and not os.path.exists(db_dir):
+        os.makedirs(db_dir, exist_ok=True)
+
     async with aiosqlite.connect(DB) as db:
         await db.executescript("""
         CREATE TABLE IF NOT EXISTS users(
@@ -212,7 +220,7 @@ async def promo_code(m: Message, state: FSMContext):
         reply_markup=main_menu()
     )
 
-# ================== ПОПОЛНЕНИЕ (общее меню) ==================
+# ================== ПОПОЛНЕНИЕ (ОБЩЕЕ) ==================
 @router.callback_query(F.data == "topup_menu")
 async def topup_menu(c: CallbackQuery, state: FSMContext):
     await c.message.edit_text(
@@ -224,7 +232,7 @@ async def topup_menu(c: CallbackQuery, state: FSMContext):
         reply_markup=topup_kb()
     )
 
-# ---------- Stars ----------
+# ---------- TELEGRAM STARS ----------
 @router.callback_query(F.data == "topup_stars")
 async def topup_stars(c: CallbackQuery, state: FSMContext):
     await state.set_state(TopUp.amount)
@@ -282,7 +290,7 @@ async def payment_ok(m: Message, state: FSMContext):
         reply_markup=main_menu()
     )
 
-# ---------- CryptoBot ----------
+# ---------- CRYPTOBOT ----------
 @router.callback_query(F.data == "topup_crypto")
 async def topup_crypto(c: CallbackQuery, state: FSMContext):
     await state.set_state(TopUp.crypto_amount)
@@ -304,42 +312,46 @@ async def topup_crypto_amount(m: Message, state: FSMContext):
     usdt = round(dw * CRYPTO_RATE, 2)
     cfg = CryptoPayConfig(token=CRYPTO_PAY_TOKEN)
     async with CryptoPayAsync(cfg) as cp:
-        invoice = await cp.create_invoice(
-            asset="USDT",
-            amount=usdt,
-            description=f"Пополнение на {dw} dw ({usdt} USDT)",
-            payload=f"cryptobot:{m.from_user.id}:{dw}"
-        )
-    pay_url = invoice["pay_url"]
-    await m.answer(
-        f"💎 Счёт на {dw} dw создан.\n"
-        f"Сумма к оплате: {usdt} USDT\n"
-        f"Оплатите по ссылке: {pay_url}\n\n"
-        f"После оплаты баланс пополнится автоматически.",
-        reply_markup=main_menu()
-    )
-    asyncio.create_task(poll_crypto_invoice(cp, invoice["invoice_id"], m.from_user.id, dw, m.bot))
+        try:
+            invoice = await cp.create_invoice(
+                asset="USDT",
+                amount=usdt,
+                description=f"Пополнение на {dw} dw ({usdt} USDT)",
+                payload=f"cryptobot:{m.from_user.id}:{dw}"
+            )
+            pay_url = invoice["pay_url"]
+            await m.answer(
+                f"💎 Счёт на {dw} dw создан.\n"
+                f"Сумма к оплате: {usdt} USDT\n"
+                f"Оплатите по ссылке: {pay_url}\n\n"
+                f"После оплаты баланс пополнится автоматически.",
+                reply_markup=main_menu()
+            )
+            asyncio.create_task(poll_crypto_invoice(cp, invoice["invoice_id"], m.from_user.id, dw, m.bot))
+        except Exception as e:
+            await m.answer(f"Ошибка при создании счёта: {e}")
 
 async def poll_crypto_invoice(cp, invoice_id, user_id, dw, bot):
+    await asyncio.sleep(5)
     while True:
-        await asyncio.sleep(10)
         try:
             invoices = await cp.get_invoices(invoice_ids=[invoice_id])
+            if invoices and invoices[0]["status"] == "paid":
+                await add_balance(user_id, dw)
+                try:
+                    await bot.send_message(
+                        user_id,
+                        f"✅ Оплата через CryptoBot получена! Баланс пополнен на {dw} dw.",
+                        reply_markup=main_menu()
+                    )
+                except Exception:
+                    pass
+                break
         except Exception:
-            continue
-        if invoices and invoices[0]["status"] == "paid":
-            await add_balance(user_id, dw)
-            try:
-                await bot.send_message(
-                    user_id,
-                    f"✅ Оплата через CryptoBot получена! Баланс пополнен на {dw} dw.",
-                    reply_markup=main_menu()
-                )
-            except Exception:
-                pass
-            break
+            pass
+        await asyncio.sleep(10)
 
-# ---------- xRocket ----------
+# ---------- XROCKET ----------
 @router.callback_query(F.data == "topup_xrocket")
 async def topup_xrocket(c: CallbackQuery, state: FSMContext):
     await state.set_state(TopUp.xrocket_amount)
@@ -360,49 +372,55 @@ async def topup_xrocket_amount(m: Message, state: FSMContext):
 
     usdt = round(dw * CRYPTO_RATE, 2)
     client = xRocketClient(api_key=XROCKET_API_KEY)
-    invoice = await client.create_invoice(
-        amount=usdt,
-        currency="USDT",
-        description=f"Пополнение на {dw} dw ({usdt} USDT)",
-        payload=f"xrocket:{m.from_user.id}:{dw}",
-        num_payments=1,
-        min_payment=0
-    )
-    pay_url = invoice.link
-    await m.answer(
-        f"🚀 Счёт на {dw} dw создан.\n"
-        f"Сумма к оплате: {usdt} USDT\n"
-        f"Оплатите по ссылке: {pay_url}\n\n"
-        f"После оплаты баланс пополнится автоматически.",
-        reply_markup=main_menu()
-    )
-    asyncio.create_task(poll_xrocket_invoice(client, invoice.id, m.from_user.id, dw, m.bot))
+    
+    try:
+        invoice = await client.create_invoice(
+            amount=usdt,
+            currency="USDT",
+            description=f"Пополнение на {dw} dw ({usdt} USDT)",
+            payload=f"xrocket:{m.from_user.id}:{dw}",
+            num_payments=1,
+            min_payment=0
+        )
+        pay_url = invoice.link
+        await m.answer(
+            f"🚀 Счёт на {dw} dw создан.\n"
+            f"Сумма к оплате: {usdt} USDT\n"
+            f"Оплатите по ссылке: {pay_url}\n\n"
+            f"После оплаты баланс пополнится автоматически.",
+            reply_markup=main_menu()
+        )
+        asyncio.create_task(poll_xrocket_invoice(client, invoice.id, m.from_user.id, dw, m.bot))
+    except Exception as e:
+        await m.answer(f"Ошибка при создании счёта: {e}")
 
 async def poll_xrocket_invoice(client, invoice_id, user_id, dw, bot):
+    await asyncio.sleep(5)
     while True:
-        await asyncio.sleep(10)
         try:
-            invoice = await client.get_invoice(invoice_id)
+            # Используем get_invoices вместо get_invoice во избежание ошибок
+            invoices = await client.get_invoices(invoice_ids=[invoice_id])
+            if invoices and invoices[0].status == "paid":
+                await add_balance(user_id, dw)
+                try:
+                    await bot.send_message(
+                        user_id,
+                        f"✅ Оплата через xRocket получена! Баланс пополнен на {dw} dw.",
+                        reply_markup=main_menu()
+                    )
+                except Exception:
+                    pass
+                break
         except Exception:
-            continue
-        if invoice.status == "paid":
-            await add_balance(user_id, dw)
-            try:
-                await bot.send_message(
-                    user_id,
-                    f"✅ Оплата через xRocket получена! Баланс пополнен на {dw} dw.",
-                    reply_markup=main_menu()
-                )
-            except Exception:
-                pass
-            break
+            pass
+        await asyncio.sleep(10)
 
 # ================== SN0S ==================
 @router.callback_query(F.data == "order")
 async def order_start(c: CallbackQuery, state: FSMContext):
     await state.set_state(Order.target)
     await c.message.edit_text(
-        "sn0s\n\nУкажите user/ID пользователя, которого нужно snesti:",
+        "sn0s\n\nУкажите user/ID пользователя, которому он хочет отписать для работы:",
         reply_markup=back_kb()
     )
 
@@ -670,6 +688,7 @@ async def main():
     bot = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher(storage=MemoryStorage())
     dp.include_router(router)
+    print("Бот запущен и работает!")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
