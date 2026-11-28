@@ -11,7 +11,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import (
     Message, CallbackQuery, LabeledPrice, PreCheckoutQuery,
-    InlineKeyboardMarkup, InlineKeyboardButton
+    InlineKeyboardMarkup, InlineKeyboardButton, InputMediaPhoto
 )
 
 from crypto_pay_api import CryptoPayAsync, CryptoPayConfig
@@ -23,7 +23,7 @@ ADMIN_ID = int(os.getenv("ADMIN_ID", 8121754585)) # Ваш ID
 DB = os.getenv("DB_PATH", "debrw.db") 
 
 CRYPTO_PAY_TOKEN = os.getenv("CRYPTO_PAY_TOKEN", "687062:AABWEFe6eltgKvhCZWup1rMIMZ8Ip5GygIr")
-XROCKET_API_KEY = os.getenv("XROCKET_API_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhcHBJZCI6IjMxMTM4MSIsImp0aSI6ImFwcDozMTEzODE6NWVjODY3ZGMtYWU2ZS00MzYxLTkzZjctNzNkOGUxMTU1ZjE4IiwiaWF0IjoxNzk1Nzg3NzQ4fQ.wx9TjaPACVS_3KRFcxSKhaTW_UVh_da111xzynLHE-4")
+XROCKET_API_KEY = os.getenv("XROCKET_API_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhcHBJZCI6IjMxMTI3MyIsImp0aSI6ImFwcDozMTEyNzM6YmIyNTZjZGYtYTFlNi00ZGY0LWI3MTgtMTNlMGU3Y2ZkZDkyIiwiaWF0IjoxNzk1NzE3NzYyfQ.HhjIx0NF3mKq_r0FIdezvlyNWqSfaEIA7ijMRQJewEA")
 
 STARS_RATE = 10       # 1 dw = 10 ⭐
 CRYPTO_RATE = 0.2     # 1 dw = 0.2 USDT
@@ -94,6 +94,9 @@ class Order(StatesGroup):
     speed = State()
     complaints = State()
 
+class FreeSnos(StatesGroup):
+    waiting_photos = State()
+
 class TopUp(StatesGroup):
     amount = State()
     crypto_amount = State()
@@ -118,8 +121,15 @@ def main_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="👤 Профиль", callback_data="profile")],
         [InlineKeyboardButton(text="💳 Пополнить баланс", callback_data="topup_menu")],
-        [InlineKeyboardButton(text="sn0s", callback_data="order")],
+        [InlineKeyboardButton(text="sn0s", callback_data="snos_menu")],
         [InlineKeyboardButton(text="🆘 Поддержка", callback_data="support")],
+    ])
+
+def snos_menu():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Заказать sn0s", callback_data="order")],
+        [InlineKeyboardButton(text="free sn0s", callback_data="free_snos")],
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_main")],
     ])
 
 def back_kb():
@@ -172,6 +182,11 @@ async def start(m: Message):
 async def back_main(c: CallbackQuery, state: FSMContext):
     await state.clear()
     await c.message.edit_text(WELCOME, reply_markup=main_menu())
+
+@router.callback_query(F.data == "snos_menu")
+async def snos_menu_handler(c: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await c.message.edit_text("Выберите опцию sn0s:", reply_markup=snos_menu())
 
 # ================== ПРОФИЛЬ ==================
 @router.callback_query(F.data == "profile")
@@ -347,7 +362,7 @@ async def poll_crypto_invoice(cp, invoice_id, user_id, dw, bot):
             pass
         await asyncio.sleep(10)
 
-# ---------- XROCKET (ИСПРАВЛЕНО) ----------
+# ---------- XROCKET ----------
 @router.callback_query(F.data == "topup_xrocket")
 async def topup_xrocket(c: CallbackQuery, state: FSMContext):
     await state.set_state(TopUp.xrocket_amount)
@@ -371,7 +386,7 @@ async def topup_xrocket_amount(m: Message, state: FSMContext):
     try:
         async with xRocketClient(api_key=XROCKET_API_KEY) as client:
             invoice = await client.create_invoice(
-                currency="USDT",  # <-- ИСПРАВЛЕНО: убрали price_currency
+                currency="USDT", 
                 amount=usdt,
                 description=f"Пополнение на {dw} dw ({usdt} USDT)",
                 payload=f"xrocket:{m.from_user.id}:{dw}",
@@ -412,7 +427,63 @@ async def poll_xrocket_invoice(api_key, invoice_id, user_id, dw, bot):
                 pass
             await asyncio.sleep(10)
 
-# ================== SN0S ==================
+# ================== FREE SN0S ==================
+@router.callback_query(F.data == "free_snos")
+async def free_snos_start(c: CallbackQuery, state: FSMContext):
+    await state.set_state(FreeSnos.waiting_photos)
+    await state.update_data(photos=[])
+    
+    text = (
+        "Чтобы получить бесплатные dw вам нужно оставить 10 комментариев под роликами такого же контента, какого наш бот, оставить комментарии по типу:\n\n"
+        "<code>@escagencybot лучший sn0s</code>\n\n"
+        "Также со своими вариациями, и отправить скриншоты сюда (минимум 10 штук)."
+    )
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⬅️ Отмена", callback_data="back_main")]
+    ])
+    await c.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+
+@router.message(FreeSnos.waiting_photos, F.photo)
+async def collect_photos(m: Message, state: FSMContext):
+    data = await state.get_data()
+    photos = data.get("photos", [])
+    photos.append(m.photo[-1].file_id)
+    await state.update_data(photos=photos)
+    
+    count = len(photos)
+    
+    if count < 10:
+        await m.answer(f"Принято скриншотов: {count}/10. Отправьте ещё {10 - count}.")
+    else:
+        # Как только набралось 10, выдаем сообщение и сбрасываем состояние
+        await state.clear()
+        await m.answer("Спасибо за выполнение задания! оно будет обработано в течении 48 часов", reply_markup=main_menu())
+        
+        # Пересылаем скриншоты админу
+        try:
+            media_group = []
+            # Telegram принимает максимум 10 фото в одном альбоме
+            for file_id in photos[:10]:
+                media_group.append(InputMediaPhoto(media=file_id))
+                
+            await m.bot.send_media_group(ADMIN_ID, media=media_group)
+            await m.bot.send_message(
+                ADMIN_ID, 
+                f"📦 **Новая заявка на free sn0s**\n"
+                f"От: @{m.from_user.username} ({m.from_user.id})\n"
+                f"Отправлено скриншотов: {count}",
+                parse_mode="Markdown"
+            )
+        except Exception as e:
+            await m.bot.send_message(ADMIN_ID, f"⚠️ Ошибка при отправке фото от {m.from_user.id}: {e}")
+
+# Обработка случая, если пользователь присылает не фото, а текст/стикер
+@router.message(FreeSnos.waiting_photos)
+async def wrong_format(m: Message):
+    await m.answer("Пожалуйста, отправьте именно скриншоты (фотографии). Текст и другие файлы не принимаются.")
+
+# ================== ЗАКАЗ SN0S ==================
 @router.callback_query(F.data == "order")
 async def order_start(c: CallbackQuery, state: FSMContext):
     await state.set_state(Order.target)
