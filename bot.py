@@ -23,7 +23,7 @@ ADMIN_ID = int(os.getenv("ADMIN_ID", 8121754585)) # Твой ID
 DB = os.getenv("DB_PATH", "debrw.db") 
 
 CRYPTO_PAY_TOKEN = os.getenv("CRYPTO_PAY_TOKEN", "687062:AABWEFe6eltgKvhCZWup1rMIMZ8Ip5GygIr")
-XROCKET_API_KEY = os.getenv("XROCKET_API_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhcHBJZCI6IjMxMTI3MyIsImp0aSI6ImFwcDozMTEyNzM6YmIyNTZjZGYtYTFlNi00ZGY0LWI3MTgtMTNlMGU3Y2ZkZDkyIiwiaWF0IjoxNzk1NzE3NzYyfQ.HhjIx0NF3mKq_r0FIdezvlyNWqSfaEIA7ijMRQJewEA")
+XROCKET_API_KEY = os.getenv("XROCKET_API_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhcHBJZCI6IjMxMTM4MSIsImp0aSI6ImFwcDozMTEzODE6NWVjODY3ZGMtYWU2ZS00MzYxLTkzZjctNzNkOGUxMTU1ZjE4IiwiaWF0IjoxNzk1Nzg3NzQ4fQ.wx9TjaPACVS_3KRFcxSKhaTW_UVh_da111xzynLHE-4")
 
 STARS_RATE = 10       # 1 dw = 10 ⭐
 CRYPTO_RATE = 0.2     # 1 dw = 0.2 USDT
@@ -64,6 +64,13 @@ async def init_db():
         CREATE TABLE IF NOT EXISTS tickets(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER,
+            text TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS ticket_messages(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ticket_id INTEGER,
+            sender_id INTEGER,
             text TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
@@ -115,6 +122,9 @@ class Admin(StatesGroup):
     promo_amount = State()
     promo_uses = State()
     broadcast = State()
+
+class AdminReply(StatesGroup):
+    waiting_text = State()
 
 # ================== КЛАВИАТУРЫ ==================
 def main_menu():
@@ -435,7 +445,7 @@ async def free_snos_start(c: CallbackQuery, state: FSMContext):
     
     text = (
         "Чтобы получить бесплатные dw вам нужно оставить 10 комментариев под роликами такого же контента, какого наш бот, оставить комментарии по типу:\n\n"
-        "<code>@escagencybot лучший sn0ser</code>\n\n"
+        "<code>@escagencybot лучший sn0s</code>\n\n"
         "Также со своими вариациями, и отправить скриншоты сюда (минимум 10 штук)."
     )
     
@@ -449,7 +459,6 @@ async def collect_photos(m: Message, state: FSMContext):
     data = await state.get_data()
     photos = data.get("photos", [])
     
-    # Берем файл максимального разрешения
     photos.append(m.photo[-1].file_id)
     await state.update_data(photos=photos)
     
@@ -458,14 +467,11 @@ async def collect_photos(m: Message, state: FSMContext):
     if count < 10:
         await m.answer(f"Принято скриншотов: {count}/10. Отправьте ещё {10 - count}.")
     else:
-        # Как только набралось 10, выдаем сообщение и сбрасываем состояние
         await state.clear()
         await m.answer("Спасибо за выполнение задания! оно будет обработано в течении 48 часов", reply_markup=main_menu())
         
-        # Пересылаем скриншоты админу
         try:
             media_group = []
-            # Telegram принимает максимум 10 фото в одном альбоме
             for file_id in photos[:10]:
                 media_group.append(InputMediaPhoto(media=file_id))
                 
@@ -489,7 +495,7 @@ async def wrong_format(m: Message):
 async def order_start(c: CallbackQuery, state: FSMContext):
     await state.set_state(Order.target)
     await c.message.edit_text(
-        "sn0s\n\nУкажите user/ID пользователя, которого нужно snesti:",
+        "sn0s\n\nУкажите user/ID пользователя, которому он хочет отписать для работы:",
         reply_markup=back_kb()
     )
 
@@ -573,7 +579,7 @@ async def order_complaints(c: CallbackQuery, state: FSMContext):
     await state.clear()
     await c.message.edit_text(THANKS, reply_markup=main_menu())
 
-# ================== ПОДДЕРЖКА ==================
+# ================== ПОДДЕРЖКА (ТИКЕТЫ) ==================
 @router.callback_query(F.data == "support")
 async def support(c: CallbackQuery, state: FSMContext):
     await state.set_state(Support.text)
@@ -584,22 +590,83 @@ async def support(c: CallbackQuery, state: FSMContext):
 
 @router.message(Support.text)
 async def support_text(m: Message, state: FSMContext):
+    data = await state.get_data()
+    ticket_id = data.get("ticket_id")
     await state.clear()
+    
     async with aiosqlite.connect(DB) as db:
-        cur = await db.execute("INSERT INTO tickets(user_id,text) VALUES(?,?)", (m.from_user.id, m.text))
-        await db.commit()
-        tid = cur.lastrowid
+        if not ticket_id:
+            cur = await db.execute("INSERT INTO tickets(user_id,text) VALUES(?,?)", (m.from_user.id, m.text))
+            await db.commit()
+            ticket_id = cur.lastrowid
+        else:
+            await db.execute("INSERT INTO ticket_messages(ticket_id, sender_id, text) VALUES(?,?,?)", (ticket_id, m.from_user.id, m.text))
+            await db.commit()
+
     await m.answer(
-        "Спасибо за ваше обращение. Ожидайте ответа прямо в бота, обычно заявки обрабатываются в течение 24 часов.",
+        "Спасибо за ваше обращение. Ожидайте ответа прямо в бота.",
         reply_markup=main_menu()
     )
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Ответить", callback_data=f"reply_ticket:{ticket_id}")]
+    ])
     try:
         await m.bot.send_message(
             ADMIN_ID,
-            f"🎫 Обращение #{tid}\nОт @{m.from_user.username} ({m.from_user.id}):\n\n{m.text}"
+            f"🎫 **Заявка #{ticket_id}**\nОт @{m.from_user.username} ({m.from_user.id}):\n\n{m.text}",
+            reply_markup=kb,
+            parse_mode="Markdown"
         )
     except Exception:
         pass
+
+@router.callback_query(F.data.startswith("user_reply:"))
+async def user_reply_start(c: CallbackQuery, state: FSMContext):
+    ticket_id = int(c.data.split(":")[1])
+    await state.update_data(ticket_id=ticket_id)
+    await state.set_state(Support.text)
+    await c.message.answer("Введите ваше сообщение для поддержки:")
+
+# ================== ОТВЕТЫ АДМИНА ==================
+@router.callback_query(F.data.startswith("reply_ticket:"))
+async def admin_reply_start(c: CallbackQuery, state: FSMContext):
+    if c.from_user.id != ADMIN_ID: return
+    ticket_id = int(c.data.split(":")[1])
+    await state.update_data(ticket_id=ticket_id)
+    await state.set_state(AdminReply.waiting_text)
+    await c.message.answer(f"Введите текст ответа для заявки #{ticket_id}:")
+
+@router.message(AdminReply.waiting_text)
+async def admin_reply_send(m: Message, state: FSMContext):
+    if m.from_user.id != ADMIN_ID: return
+    data = await state.get_data()
+    ticket_id = data["ticket_id"]
+    await state.clear()
+    
+    async with aiosqlite.connect(DB) as db:
+        await db.execute("INSERT INTO ticket_messages(ticket_id, sender_id, text) VALUES(?,?,?)", (ticket_id, ADMIN_ID, m.text))
+        await db.commit()
+        async with db.execute("SELECT user_id FROM tickets WHERE id=?", (ticket_id,)) as cur:
+            row = await cur.fetchone()
+            
+    if row:
+        user_id = row[0]
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="Ответить в поддержку", callback_data=f"user_reply:{ticket_id}")]
+        ])
+        try:
+            await m.bot.send_message(
+                user_id,
+                f"💬 **Ответ от поддержки** (Заявка #{ticket_id}):\n\n{m.text}",
+                reply_markup=kb,
+                parse_mode="Markdown"
+            )
+            await m.answer("✅ Ответ отправлен пользователю.")
+        except Exception as e:
+            await m.answer(f"❌ Ошибка при отправке: {e}")
+    else:
+        await m.answer("❌ Пользователь не найден.")
 
 # ================== АДМИН-ПАНЕЛЬ ==================
 @router.message(Command("admin"))
@@ -739,17 +806,31 @@ async def admin_tickets(c: CallbackQuery):
     if c.from_user.id != ADMIN_ID: return
     async with aiosqlite.connect(DB) as db:
         db.row_factory = aiosqlite.Row
-        async with db.execute("SELECT * FROM tickets ORDER BY id DESC LIMIT 20") as cur:
+        async with db.execute("SELECT * FROM tickets ORDER BY id DESC LIMIT 10") as cur:
             rows = await cur.fetchall()
     if not rows:
         await c.message.edit_text("Заявок нет.", reply_markup=admin_kb())
         return
-    text = "🎫 Последние заявки:\n\n"
+    
+    await c.message.edit_text("🎫 **Последние 10 заявок:**", reply_markup=admin_kb())
     for r in rows:
-        text += f"#{r['id']} от {r['user_id']} [{r['created_at']}]:\n{r['text']}\n\n"
-    if len(text) > 4000:
-        text = text[:4000] + "\n…"
-    await c.message.edit_text(text, reply_markup=admin_kb())
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="Ответить", callback_data=f"reply_ticket:{r['id']}")]
+        ])
+        # Выводим историю сообщений
+        async with aiosqlite.connect(DB) as db2:
+            async with db2.execute("SELECT sender_id, text FROM ticket_messages WHERE ticket_id=? ORDER BY id ASC", (r['id'],)) as cur2:
+                msgs = await cur2.fetchall()
+        
+        history = f"#{r['id']} | Пользователь: {r['user_id']}\n"
+        history += f"Исходное: {r['text']}\n"
+        if msgs:
+            history += "--- Диалог ---\n"
+            for s_id, txt in msgs:
+                role = "Админ" if s_id == ADMIN_ID else "Юзер"
+                history += f"[{role}]: {txt}\n"
+                
+        await c.message.answer(history, reply_markup=kb)
 
 # ================== ЗАПУСК ==================
 async def main():
