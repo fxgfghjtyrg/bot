@@ -19,7 +19,7 @@ from aiorocket2 import xRocketClient
 
 # ================== НАСТРОЙКИ ==================
 BOT_TOKEN = os.getenv("BOT_TOKEN", "9000976358:AAFm1FFWsOlh77Raw6ecIKLZz9hJb45-WHk")
-ADMIN_ID = int(os.getenv("ADMIN_ID", 8121754585)) # Ваш ID
+ADMIN_ID = int(os.getenv("ADMIN_ID", 8121754585)) # Твой ID
 DB = os.getenv("DB_PATH", "debrw.db") 
 
 CRYPTO_PAY_TOKEN = os.getenv("CRYPTO_PAY_TOKEN", "687062:AABWEFe6eltgKvhCZWup1rMIMZ8Ip5GygIr")
@@ -448,6 +448,8 @@ async def free_snos_start(c: CallbackQuery, state: FSMContext):
 async def collect_photos(m: Message, state: FSMContext):
     data = await state.get_data()
     photos = data.get("photos", [])
+    
+    # Берем файл максимального разрешения
     photos.append(m.photo[-1].file_id)
     await state.update_data(photos=photos)
     
@@ -478,7 +480,6 @@ async def collect_photos(m: Message, state: FSMContext):
         except Exception as e:
             await m.bot.send_message(ADMIN_ID, f"⚠️ Ошибка при отправке фото от {m.from_user.id}: {e}")
 
-# Обработка случая, если пользователь присылает не фото, а текст/стикер
 @router.message(FreeSnos.waiting_photos)
 async def wrong_format(m: Message):
     await m.answer("Пожалуйста, отправьте именно скриншоты (фотографии). Текст и другие файлы не принимаются.")
