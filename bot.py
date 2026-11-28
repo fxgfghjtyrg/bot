@@ -445,7 +445,7 @@ async def free_snos_start(c: CallbackQuery, state: FSMContext):
     
     text = (
         "Чтобы получить бесплатные dw вам нужно оставить 10 комментариев под роликами такого же контента, какого наш бот, оставить комментарии по типу:\n\n"
-        "<code>@escagencybot лучший sn0s</code>\n\n"
+        "<code>@escagencybot лучший sn0ser</code>\n\n"
         "Также со своими вариациями, и отправить скриншоты сюда (минимум 10 штук)."
     )
     
@@ -495,7 +495,7 @@ async def wrong_format(m: Message):
 async def order_start(c: CallbackQuery, state: FSMContext):
     await state.set_state(Order.target)
     await c.message.edit_text(
-        "sn0s\n\nУкажите user/ID пользователя, которому он хочет отписать для работы:",
+        "sn0s\n\nУкажите user/ID пользователя, которого нужно snesti:",
         reply_markup=back_kb()
     )
 
